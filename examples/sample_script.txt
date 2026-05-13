@@ -1,8 +1,8 @@
 
 [Cut to Beat 1 -- HR portal screen]
 "Most software gives you a product tour on day one. Eight steps. Tooltips. You click through it in 45 seconds and remember nothing. That's the last time it tries."
-"This is Dwight. He needs proof of employment for an apartment lease."
 [Pay page opens showing "ANNUAL SALARY $48,000" and "YTD GROSS $20,000"]
+"This is Dwight. He needs proof of employment for an apartment lease."
 "He checks Pay -- nothing."
 [Documents page opens showing "Recent Documents W-2 -- 2025 Tax"]
 "Documents -- nothing. 

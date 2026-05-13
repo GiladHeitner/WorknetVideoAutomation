@@ -58,7 +58,7 @@ _STOPWORDS = {
 class CueFinderConfig:
     """Tunables for cue-time inference."""
 
-    sample_interval: float = 1.0
+    sample_interval: float = 0.5
     """Seconds between fixed-interval frame samples (in addition to scene cuts)."""
 
     scene_threshold: float = 0.2
@@ -70,20 +70,26 @@ class CueFinderConfig:
     ocr_lang: str = "eng"
     """Tesseract language."""
 
-    min_token_overlap: int = 1
-    """Minimum keyword tokens that must match OCR text for an OCR-based hit."""
-
     common_token_threshold: float = 0.5
     """If a token appears in more than this fraction of frames, treat it as
     background chrome and de-weight it heavily during cue matching."""
 
-    startup_grace: float = 0.75
-    """Skip scene-cut candidates earlier than this many seconds; the very
-    first frames are almost always flagged as a scene by ffmpeg."""
+    startup_grace: float = 0.5
+    """Skip cue matching earlier than this many seconds at the very start of
+    the section; the first frames often carry stale chrome from the
+    section-start cut."""
 
-    rare_token_min_weight: float = 0.3
+    rare_token_min_weight: float = 0.25
     """OCR matches only count when at least one matched token weighs above
-    this; otherwise we fall through to scene-only or even fallback."""
+    this; otherwise UI chrome on every frame would dominate."""
+
+    accept_threshold: float = 0.45
+    """Walk frames forward; the first frame whose match score crosses this
+    is accepted as the cue's source time. Mimics "watch until you see it"."""
+
+    weak_threshold: float = 0.2
+    """If no frame crosses ``accept_threshold``, fall back to the
+    highest-scoring frame above this; otherwise even-distribute."""
 
 
 @dataclass
@@ -183,10 +189,48 @@ def _tokens(text: str) -> set[str]:
     return {w for w in raw if len(w) > 1 and w not in _STOPWORDS}
 
 
-def _cue_keywords(cue_text: str) -> set[str]:
-    """Strip ``Cut to`` markers and stopwords; return tokens to match in OCR."""
-    cleaned = re.sub(r"(?i)^\s*cut\s+to\s+", "", cue_text)
-    return _tokens(cleaned)
+def _literal_marks(text: str) -> set[str]:
+    """Pull out alphanumeric "screen-readable" tokens that ``_tokens`` skips:
+    dollar amounts, percentages, version-like identifiers, channel names,
+    file numbers (``$48,000``, ``40%``, ``W-2``, ``#ask-hr``, ``v4.21``).
+    """
+    marks: set[str] = set()
+    for m in re.findall(r"[\$#]?[A-Za-z0-9][A-Za-z0-9\-\.,_/]+", text):
+        if any(c.isdigit() or c in "$#" for c in m) and len(m) >= 2:
+            marks.add(m.lower().strip(",."))
+    return marks
+
+
+@dataclass
+class CueSignals:
+    quoted: list[str]
+    quoted_tokens: list[set[str]]
+    tokens: set[str]
+    literals: set[str]
+
+
+def _cue_signals(cue_text: str) -> CueSignals:
+    """Decompose a cue into matchable signals.
+
+    Quoted phrases become strong "must roughly appear on screen" anchors.
+    Bare words become token-based fallback signals. Numerics/symbols become
+    literal substring searches.
+    """
+    body = re.sub(r"(?i)^\s*cut\s+to\s+", "", cue_text)
+    quoted = [m.strip() for m in re.findall(r'"([^"]+)"', body) if m.strip()]
+    bare = re.sub(r'"[^"]*"', " ", body)
+
+    quoted_tokens = [_tokens(q) for q in quoted]
+    bare_tokens = _tokens(bare)
+    literal_pool = bare + " " + " ".join(quoted)
+    literals = _literal_marks(literal_pool)
+
+    return CueSignals(
+        quoted=quoted,
+        quoted_tokens=[t for t in quoted_tokens if t],
+        tokens=bare_tokens | {t for ts in quoted_tokens for t in ts},
+        literals=literals,
+    )
 
 
 def gather_candidates(
@@ -275,10 +319,13 @@ def schedule_section_cues(
     n_remaining = len(cues)
 
     for cue_idx, cue in enumerate(cues):
-        keywords = _cue_keywords(cue["content"])
+        signals = _cue_signals(cue["content"])
         gap = config.min_cue_gap if assignments else 0.0
         min_t = max(cursor + gap, 0.0 if assignments else config.startup_grace)
-        usable = [c for c in candidates if c.time >= min_t]
+        usable = sorted(
+            [c for c in candidates if c.time >= min_t],
+            key=lambda c: c.time,
+        )
         if not usable:
             assignments.append(
                 CueAssignment(cue=cue, source_time=None, confidence=0.0,
@@ -286,23 +333,32 @@ def schedule_section_cues(
             )
             continue
 
-        best = _score_candidates(
-            usable, keywords, cursor, token_weights,
+        accepted, score, hits = _scan_until_match(
+            usable, signals, token_weights,
+            accept_threshold=config.accept_threshold,
             rare_token_min_weight=config.rare_token_min_weight,
         )
-        if best is not None and best[1] > 0.0:
-            chosen, score, method = best
-            confidence = min(1.0, score)
+        method_label = "ocr-scan"
+
+        if accepted is None:
+            best_pair = _best_below_threshold(
+                usable, signals, token_weights, config.rare_token_min_weight
+            )
+            if best_pair is not None and best_pair[1] >= config.weak_threshold:
+                accepted, score, hits = best_pair
+                method_label = "ocr-weak"
+
+        if accepted is not None:
             assignments.append(
                 CueAssignment(
                     cue=cue,
-                    source_time=chosen.time,
-                    confidence=confidence,
-                    method=method,
-                    notes=f"matched on tokens: {', '.join(sorted(keywords & chosen.ocr_tokens)) or '-'}",
+                    source_time=accepted.time,
+                    confidence=min(1.0, score),
+                    method=("ocr+scene" if accepted.is_scene_cut else method_label),
+                    notes=_format_hits(hits),
                 )
             )
-            cursor = chosen.time
+            cursor = accepted.time
         else:
             even_t = _even_fallback(cursor, duration, n_remaining - cue_idx)
             assignments.append(
@@ -312,6 +368,100 @@ def schedule_section_cues(
             cursor = even_t
 
     return assignments
+
+
+def _scan_until_match(
+    usable: list[CandidateFrame],
+    signals: CueSignals,
+    token_weights: dict[str, float],
+    accept_threshold: float,
+    rare_token_min_weight: float,
+) -> tuple[Optional[CandidateFrame], float, dict]:
+    """Walk frames in time order; return the FIRST one whose match score
+    crosses ``accept_threshold``. Mimics "watch the video until the action
+    appears, then mark it"."""
+    best_below = (None, 0.0, {})
+    for cand in usable:
+        score, hits = _score_frame(cand, signals, token_weights, rare_token_min_weight)
+        if score >= accept_threshold:
+            return cand, score, hits
+        if score > best_below[1]:
+            best_below = (cand, score, hits)
+    return None, 0.0, {}
+
+
+def _best_below_threshold(
+    usable: list[CandidateFrame],
+    signals: CueSignals,
+    token_weights: dict[str, float],
+    rare_token_min_weight: float,
+) -> Optional[tuple[CandidateFrame, float, dict]]:
+    best: Optional[tuple[CandidateFrame, float, dict]] = None
+    for cand in usable:
+        score, hits = _score_frame(cand, signals, token_weights, rare_token_min_weight)
+        if score <= 0:
+            continue
+        if best is None or score > best[1]:
+            best = (cand, score, hits)
+    return best
+
+
+def _score_frame(
+    cand: CandidateFrame,
+    signals: CueSignals,
+    token_weights: dict[str, float],
+    rare_token_min_weight: float,
+) -> tuple[float, dict]:
+    """Composite score for one frame. Returns (score, hits dict for notes)."""
+    score = 0.0
+    hits: dict[str, list[str]] = {"quoted": [], "tokens": [], "literals": []}
+    ocr_lower = cand.ocr_text.lower()
+
+    # Quoted phrases — strongest signal. Use word-overlap ratio so OCR errors
+    # don't kill the match outright.
+    for original, q_tokens in zip(signals.quoted, signals.quoted_tokens):
+        overlap = q_tokens & cand.ocr_tokens
+        if not overlap:
+            continue
+        ratio = len(overlap) / max(1, len(q_tokens))
+        if ratio >= 0.5:
+            score += 0.55 * ratio
+            hits["quoted"].append(original)
+        elif ratio >= 0.25:
+            score += 0.25 * ratio
+            hits["quoted"].append(f"~{original}")
+
+    # Bare-token IDF score (gated by at least one rare token to avoid chrome).
+    if signals.tokens:
+        token_overlap = signals.tokens & cand.ocr_tokens
+        rare = [t for t in token_overlap if token_weights.get(t, 1.0) >= rare_token_min_weight]
+        if rare:
+            total = sum(token_weights.get(t, 1.0) for t in signals.tokens) or 1.0
+            base = sum(token_weights.get(t, 1.0) for t in token_overlap) / total
+            score += 0.3 * base
+            hits["tokens"] = rare
+
+    # Literal numerics / symbols — exact substrings in OCR text.
+    for lit in signals.literals:
+        if lit in ocr_lower:
+            score += 0.2
+            hits["literals"].append(lit)
+
+    if cand.is_scene_cut:
+        score += 0.1
+
+    return min(1.0, score), hits
+
+
+def _format_hits(hits: dict) -> str:
+    parts: list[str] = []
+    if hits.get("quoted"):
+        parts.append("quoted: " + " | ".join(hits["quoted"]))
+    if hits.get("tokens"):
+        parts.append("tokens: " + ", ".join(sorted(hits["tokens"])))
+    if hits.get("literals"):
+        parts.append("literals: " + ", ".join(sorted(hits["literals"])))
+    return "; ".join(parts) if parts else "-"
 
 
 def _idf_weights(
@@ -334,54 +484,6 @@ def _idf_weights(
         else:
             weights[token] = math.log((1 + n) / (1 + count)) + 0.5
     return weights
-
-
-def _score_candidates(
-    usable: list[CandidateFrame],
-    keywords: set[str],
-    cursor: float,
-    token_weights: dict[str, float],
-    rare_token_min_weight: float = 0.3,
-) -> Optional[tuple[CandidateFrame, float, str]]:
-    """Return (best_candidate, normalized_score, method) or None.
-
-    OCR matches only count when at least one matched token is "rare enough"
-    by IDF weight; otherwise UI chrome on every frame would dominate. Among
-    near-tied OCR matches, prefer the earliest scene-cut candidate so the
-    chosen frame is the actual moment the screen changed.
-    """
-    if not usable:
-        return None
-
-    if keywords:
-        kw_total_weight = sum(token_weights.get(k, 1.0) for k in keywords) or 1.0
-        scored: list[tuple[CandidateFrame, float, str]] = []
-        for cand in usable:
-            overlap = keywords & cand.ocr_tokens
-            if not overlap:
-                continue
-            rare_hits = [t for t in overlap if token_weights.get(t, 1.0) >= rare_token_min_weight]
-            if not rare_hits:
-                continue
-            base = sum(token_weights.get(t, 1.0) for t in overlap) / kw_total_weight
-            scene_bonus = 0.35 if cand.is_scene_cut else 0.0
-            score = min(1.0, base + scene_bonus)
-            method = "ocr+scene" if cand.is_scene_cut else "ocr"
-            scored.append((cand, score, method))
-
-        if scored:
-            top_score = max(s for _, s, _ in scored)
-            tie_band = max(0.05, 0.1 * top_score)
-            ties = [t for t in scored if (top_score - t[1]) <= tie_band]
-            scene_ties = [t for t in ties if t[0].is_scene_cut]
-            preferred = scene_ties or ties
-            preferred.sort(key=lambda x: x[0].time)
-            return preferred[0]
-
-    scene_only = [c for c in usable if c.is_scene_cut]
-    if scene_only:
-        return (scene_only[0], 0.4, "scene")
-    return None
 
 
 def _even_fallback(cursor: float, total_duration: float, remaining: int) -> float:
@@ -452,5 +554,10 @@ def render_timestamped_script(beats: list[Beat]) -> str:
             else:
                 lines.append(f"[{content}]")
         elif b.get("type") == "spoken_text":
-            lines.append(f'"{b.get("content", "")}"')
+            text = b.get("content", "").strip()
+            # Don't double-wrap quotes when the source already had them.
+            if text.startswith('"') and text.endswith('"'):
+                lines.append(text)
+            else:
+                lines.append(f'"{text}"')
     return "\n".join(lines) + "\n"
