@@ -1,17 +1,49 @@
-[Homepage is active and "The proactive AI chat that grows revenue." is visible]
-"Welcome to Worknet. Our platform is built to turn every user into a raving fan at scale by providing a proactive AI chat experience."
 
-[About us page opens and "Built by people who believe users deserve more than a support ticket." is visible]
-"Our foundation is built by industry veterans who understand that true growth comes from connecting every signal to a response, rather than just filing support tickets."
+[Cut to Beat 1 -- HR portal screen]
+"Most software gives you a product tour on day one. Eight steps. Tooltips. You click through it in 45 seconds and remember nothing. That's the last time it tries."
+"This is Dwight. He needs proof of employment for an apartment lease."
+[Pay page opens showing "ANNUAL SALARY $48,000" and "YTD GROSS $20,000"]
+"He checks Pay -- nothing."
+[Documents page opens showing "Recent Documents W-2 -- 2025 Tax"]
+"Documents -- nothing. 
+[Pay page opens showing "ANNUAL SALARY $48,000" and "YTD GROSS $20,000"]
+Back to Pay. Worknet noticed the loop."
+[Worknet HR Assistance chat opens with "Hi Dwight, looks like you're moving between Pay and Documents"]
+"Done. No ticket. No tour."
 
-[Resources dropdown opens and "BLOG" is visible]
-"To stay updated on industry trends and company news..."
+[Cut to Beat 2 -- Slack screen]
+[#ask-hr channel opens with "Add canvas" and "Team Worknet" message]
+"Open enrollment closes in 48 hours. Worknet posts to #ask-hr. Dwight has a real question -- he's getting married, the math just changed. He asks in the thread."
+[Worknet thread reply appears with "premiums" and "deductibles" for Dunder Mifflin's plan]
+"Worknet knows Dunder Mifflin's actual plan numbers."
+[enrollment confirmation appears in the thread]
+"Enrolled. HR portal never opened."
 
-[Blog page opens and "Worknet Blog" is visible]
-"...head over to the Worknet Blog, where you'll find featured articles on best practices, customer support, and AI integration."
+[Cut to Beat 3 -- CRM screen, Vance Refrigeration deal]
+[Vance Refrigeration -- Multi-Site Supply Contract opportunity page is open]
+"Relay CRM shipped Buying Committee Mapping three weeks ago. Jim dismissed the release note. Worknet remembered. Six weeks into an $82K deal -- it nudges him back."
+[Worknet nudge appears with "Most deals this size have 4-6 influencers -- reps usually engage 2-3"]
+"He clicks. Worknet surfaces a peer quote, opens the Committee tab, finds four unengaged stakeholders."
+[chat panel shows "BCM finds the gap" with Vance Refrigeration card and four contacts]
+"One click to share with the team."
 
-[Platform dropdown opens and "Inbound DSR" is visible]
-"When you're ready to explore our specific solutions..."
+[Cut to Beat 4 -- same deal, Qualification section]
+[Vance Refrigeration deal page shows "$82,000" at "Negotiation" stage]
+"Same deal. Jim clicks AskAI on the blank MEDDIC score."
+[Recent activity panel appears with "Sent revised SOW to Vance" by Jim Halpert]
+"Worknet doesn't give him a textbook definition. It gives him Dunder Mifflin's qualification rules -- and flags that Economic Buyer and Champion need to be locked before legal review."
+[MEDDIC card appears with Economic Buyer and Champion risk flag]
+"He pulls background on Vance. Web intel surfaces in context. Tab never opened."
+[Web intel card loads with Vance background]
+"Jim fills in the fields himself. Worknet told him what mattered."
 
-[Landing page opens and "Double your Demos." is visible]
-"...check out features like our Inbound DSR, which uses AI chat to instantly qualify intent and book high-impact demos directly from the conversation."
+[Cut to Beat 5 -- CRM screen, Prestige Direct deal]
+[Pipeline page shows "6 open opportunities"]
+"$76K deal. Proposal stage. Three weeks to close. Jim's been solo for four weeks -- no SE involved. Worknet caught it."
+[Prestige Direct -- Regional Logistics Expansion deal page opens]
+"He opens the deal."
+[Worknet nudge appears with "Prestige Direct is at Proposal stage, $76K, no SE engaged" and "40%" stat]
+"He clicks. Worknet drafts the Slack message, attaches the deal, posts to #solutions-engineering."
+[chat panel shows draft message ready to send to #solutions-engineering]
+"Jim didn't write anything. He just sent it."
+"Most software shows up on day one and disappears. Worknet shows up when the work actually starts -- inside your product, and inside Slack. Your UI just got a lot bigger."
