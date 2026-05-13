@@ -1,35 +1,17 @@
-[Cut to Beat 1 -- HR portal screen]
-"Most software gives you a product tour on day one. Eight steps. Tooltips. You click through it in 45 seconds and remember nothing. That's the last time it tries."
-[user clicks on pay screen]
-"This is Dwight. He needs proof of employment for an apartment lease. He checks Pay -- nothing. Documents -- nothing. Back to Pay. Worknet noticed the loop."
-[nudge appears, chat opens, PDF downloads]
-"Done. No ticket. No tour."
+[Homepage is active and "The proactive AI chat that grows revenue." is visible]
+"Welcome to Worknet. Our platform is built to turn every user into a raving fan at scale by providing a proactive AI chat experience."
 
-[Cut to Beat 2 -- Slack screen]
-"Open enrollment closes in 48 hours. Worknet posts to #ask-hr. Dwight has a real question -- he's getting married, the math just changed. He asks in the thread. Worknet knows Dunder Mifflin's actual plan numbers."
-[thread opens, specific answer with premiums and deductibles, enrollment completes]
-"Enrolled. HR portal never opened."
+[About us page opens and "Built by people who believe users deserve more than a support ticket." is visible]
+"Our foundation is built by industry veterans who understand that true growth comes from connecting every signal to a response, rather than just filing support tickets."
 
-[Cut to Beat 3 -- CRM screen, Vance Refrigeration deal]
-"Relay CRM shipped Buying Committee Mapping three weeks ago. Jim dismissed the release note. Worknet remembered. Six weeks into an $82K deal -- it nudges him back."
-[nudge appears]
-"He clicks. Worknet surfaces a peer quote, opens the Committee tab, finds four unengaged stakeholders."
-[chat opens, peer quote, four contacts]
-"One click to share with the team."
+[Resources dropdown opens and "BLOG" is visible]
+"To stay updated on industry trends and company news..."
 
-[Cut to Beat 4 -- same deal, Qualification section]
-"Same deal. Jim clicks AskAI on the blank MEDDIC score. Worknet doesn't give him a textbook definition. It gives him Dunder Mifflin's qualification rules -- and flags that Economic Buyer and Champion need to be locked before legal review."
-[MEDDIC card, risk flag visible]
-"He pulls background on Vance. Web intel surfaces in context. Tab never opened."
-[intel loads]
-"Jim fills in the fields himself. Worknet told him what mattered."
+[Blog page opens and "Worknet Blog" is visible]
+"...head over to the Worknet Blog, where you'll find featured articles on best practices, customer support, and AI integration."
 
-[Cut to Beat 5 -- CRM screen, Prestige Direct deal]
-"$76K deal. Proposal stage. Three weeks to close. Jim's been solo for four weeks -- no SE involved. Worknet caught it."
-[nudge appears with 40% stat]
-"He clicks. Worknet drafts the Slack message, attaches the deal, posts to #solutions-engineering."
-[chat panel, draft visible, sends to Slack]
-"Jim didn't write anything. He just sent it."
+[Platform dropdown opens and "Inbound DSR" is visible]
+"When you're ready to explore our specific solutions..."
 
-[Ami, back to camera]
-"Most software shows up on day one and disappears. Worknet shows up when the work actually starts -- inside your product, and inside Slack. Your UI just got a lot bigger."
+[Landing page opens and "Double your Demos." is visible]
+"...check out features like our Inbound DSR, which uses AI chat to instantly qualify intent and book high-impact demos directly from the conversation."

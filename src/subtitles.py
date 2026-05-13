@@ -123,15 +123,15 @@ def write_srt(beats: list[Beat], path: str | Path, wrap: bool = True) -> str:
     return str(path)
 
 
-# Bold white text, thick black outline, bottom-centered.
-# Caption-style readability that still gets out of the screen content's way.
+# White caption text with black outline/shadow, bottom-centered.
+# Styled to resemble baked-in TV/movie subtitles.
 _DEFAULT_STYLE = (
-    "FontName=Helvetica Neue,FontSize=14,Bold=1,"
+    "FontName=Arial,FontSize=34,Bold=0,"
     "PrimaryColour=&H00FFFFFF,"
     "OutlineColour=&H00000000,"
     "BackColour=&H80000000,"
-    "BorderStyle=1,Outline=3,Shadow=0,"
-    "Alignment=2,MarginV=35,Spacing=0.3"
+    "BorderStyle=1,Outline=2,Shadow=1,"
+    "Alignment=2,MarginV=42,Spacing=0"
 )
 
 

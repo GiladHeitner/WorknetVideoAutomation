@@ -17,6 +17,10 @@ class Beat(TypedDict, total=False):
     audio_path: str
     duration: float
     words: list[dict]
+    # Populated by cue_finder for visual_cue beats inside section videos.
+    source_time: float
+    cue_confidence: float
+    cue_method: str
 
 
 # Matches anything inside [ ... ] non-greedily; the surrounding plain text is

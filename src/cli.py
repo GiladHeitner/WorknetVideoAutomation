@@ -18,6 +18,7 @@ import sys
 from pathlib import Path
 
 from .assets import cue_resolution_report, discover_cue_assets
+from .cue_finder import CueFinderConfig
 from .parser import parse_script_file
 from .pipeline import run
 from .preflight import PreflightError, check
@@ -86,14 +87,21 @@ def _dry_run(args: argparse.Namespace, section_videos: list[str] | None) -> int:
         except ValueError as e:
             print(f"Section check FAILED: {e}")
         else:
-            print(f"Sections ({len(sections)}, matches {len(section_videos)} videos)")
+            cue_mode = "auto-cue ON" if args.auto_cue else "auto-cue OFF"
+            print(f"Sections ({len(sections)}, matches {len(section_videos)} videos, {cue_mode})")
             for i, (sec, vid) in enumerate(zip(sections, section_videos), 1):
                 cue = sec["start_cue"]
                 marker = f"[{cue['content']}]" if cue else "(intro)"
                 n_spoken = sum(1 for b in sec["beats"] if b["type"] == "spoken_text")
+                inner_cues = [
+                    b["content"] for b in sec["beats"]
+                    if b.get("type") == "visual_cue"
+                ]
                 print(f"  {i}. {marker}")
                 print(f"     video : {vid}")
-                print(f"     beats : {n_spoken} spoken")
+                print(f"     beats : {n_spoken} spoken, {len(inner_cues)} bracket actions to time")
+                for c in inner_cues:
+                    print(f"       - [{c}]")
             print()
 
     cue_rows = cue_resolution_report(beats, args.cues_dir)
@@ -170,6 +178,31 @@ def main() -> None:
     )
     p.add_argument("--fps", type=int, default=30)
     p.add_argument(
+        "--auto-cue",
+        dest="auto_cue",
+        action="store_true",
+        default=True,
+        help="Infer source-video timestamps for each bracketed action (default: on)",
+    )
+    p.add_argument(
+        "--no-auto-cue",
+        dest="auto_cue",
+        action="store_false",
+        help="Disable automatic cue-time inference; stretch each section uniformly",
+    )
+    p.add_argument(
+        "--cue-step",
+        type=float,
+        default=1.0,
+        help="Frame sample interval in seconds for cue inference (default: 1.0)",
+    )
+    p.add_argument(
+        "--cue-scene-threshold",
+        type=float,
+        default=0.3,
+        help="ffmpeg scene-detection threshold; lower = more cuts (default: 0.3)",
+    )
+    p.add_argument(
         "--dry-run",
         action="store_true",
         help="Parse + preview only; no API calls, no render",
@@ -230,6 +263,11 @@ def main() -> None:
     cue_assets = discover_cue_assets(beats, args.cues_dir)
     cue_assets.update(_override_assets(args.cue_assets))
 
+    cue_config = CueFinderConfig(
+        sample_interval=args.cue_step,
+        scene_threshold=args.cue_scene_threshold,
+    )
+
     manifest = run(
         script_path=args.script,
         video_path=single,
@@ -242,11 +280,38 @@ def main() -> None:
         subtitles_format=None if args.subs == "none" else args.subs,
         burn_subs=args.burn_subs,
         fps=args.fps,
+        auto_cue=args.auto_cue,
+        cue_config=cue_config,
     )
+
+    if "cue_plan" in manifest:
+        _print_cue_plan(manifest["cue_plan"])
 
     print("\nDone.")
     for key, value in manifest.items():
-        print(f"  {key:9s} {value}")
+        print(f"  {key:18s} {value}")
+
+
+def _print_cue_plan(plan_path: str) -> None:
+    """Render a compact summary of the inferred cue-plan JSON."""
+    try:
+        plan = json.loads(Path(plan_path).read_text(encoding="utf-8"))
+    except Exception:
+        return
+    print("\nInferred cue timestamps")
+    for section in plan.get("sections", []):
+        marker = section.get("section_marker") or "(intro)"
+        print(f"  Section {section['index']:>2}: {marker}")
+        if not section["assignments"]:
+            print("           (no non-section cues)")
+            continue
+        for a in section["assignments"]:
+            ts = a["source_time"]
+            ts_str = f"{ts:6.2f}s" if ts is not None else "  ?    "
+            print(
+                f"           [{a['cue']}]  -> {ts_str}  "
+                f"({a['method']}, conf {a['confidence']:.2f})"
+            )
 
 
 if __name__ == "__main__":

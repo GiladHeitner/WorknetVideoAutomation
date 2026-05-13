@@ -147,9 +147,15 @@ def render_sections(
 ) -> str:
     """Section-aware render: one source video per ``[Cut to ...]`` section.
 
-    Each section's source video is speed-fit to the total audio duration of
-    its spoken beats, then sliced into per-beat sub-clips so word-level cue
-    overlays still line up.
+    If non-section ``visual_cue`` beats carry an inferred ``source_time``,
+    each section's source video is anchored at those timestamps so the
+    bracketed action shows up immediately before the narration that
+    follows. Source intervals between anchors are individually
+    speed-fitted to match the corresponding narration interval.
+
+    With no inferred timestamps, this falls back to the previous behavior:
+    the whole section video is stretched to the section's total audio
+    duration.
     """
     sections = reconcile_videos(split_sections(beats, marker_pattern), len(section_videos))
 
@@ -174,16 +180,14 @@ def render_sections(
             per_dur.append(dur)
         section_total = sum(per_dur)
 
-        stretched = source.fx(vfx.speedx, final_duration=section_total).set_duration(section_total)
+        anchors = _build_section_anchors(section, per_dur, source.duration)
+        section_video = _build_anchored_section_video(source, anchors, section_total)
+        fitted_clips.append(section_video.without_audio())
 
-        cursor = 0.0
         for beat, dur in zip(section_spoken, per_dur):
-            sub = stretched.subclip(cursor, cursor + dur).set_duration(dur)
-            fitted_clips.append(sub.without_audio())
             audio_clips.append(AudioFileClip(beat["audio_path"]).set_duration(dur))
             spoken_starts[id(beat)] = timeline_cursor
             timeline_cursor += dur
-            cursor += dur
 
     if not fitted_clips:
         raise ValueError("no spoken beats found across sections; nothing to render")
@@ -221,6 +225,91 @@ def render_sections(
             pass
 
     return str(out_path)
+
+
+def _build_section_anchors(
+    section,
+    per_dur: list[float],
+    source_duration: float,
+    min_gap: float = 0.05,
+) -> list[tuple[float, float]]:
+    """Walk this section's beats and emit ``(final_time, source_time)`` anchors.
+
+    Each non-section ``visual_cue`` with a known ``source_time`` becomes
+    an anchor at the start of the spoken text that follows it. Anchors
+    are clamped to stay strictly monotonic in both axes so MoviePy can
+    actually retime each interval.
+    """
+    anchors: list[tuple[float, float]] = [(0.0, 0.0)]
+    final = 0.0
+    spoken_idx = 0
+    last_source = 0.0
+    pending: float | None = None
+
+    for beat in section["beats"]:
+        if beat.get("type") == "visual_cue":
+            t = beat.get("source_time")
+            if t is None:
+                continue
+            t = max(float(t), last_source + min_gap)
+            t = min(t, max(0.0, source_duration - min_gap))
+            pending = t if pending is None else max(pending, t)
+        elif beat.get("type") == "spoken_text":
+            if pending is not None and final > 0.0:
+                anchors.append((final, pending))
+                last_source = pending
+                pending = None
+            final += per_dur[spoken_idx]
+            spoken_idx += 1
+
+    anchors.append((final, source_duration))
+    return _dedupe_anchors(anchors, min_gap)
+
+
+def _dedupe_anchors(
+    anchors: list[tuple[float, float]],
+    min_gap: float,
+) -> list[tuple[float, float]]:
+    """Drop anchors that would yield zero/near-zero intervals on either axis."""
+    cleaned: list[tuple[float, float]] = []
+    for f, s in anchors:
+        if cleaned:
+            pf, ps = cleaned[-1]
+            if (f - pf) < min_gap or (s - ps) < min_gap:
+                continue
+        cleaned.append((f, s))
+    if len(cleaned) < 2 and anchors:
+        return [anchors[0], anchors[-1]]
+    return cleaned
+
+
+def _build_anchored_section_video(
+    source: VideoFileClip,
+    anchors: list[tuple[float, float]],
+    section_total: float,
+) -> VideoFileClip:
+    """Stitch speed-fitted subclips of ``source`` across the anchor list."""
+    sub_clips: list = []
+    for i in range(len(anchors) - 1):
+        f0, s0 = anchors[i]
+        f1, s1 = anchors[i + 1]
+        final_dur = f1 - f0
+        if final_dur <= 0:
+            continue
+        s_end = min(s1, source.duration)
+        if s_end <= s0:
+            continue
+        sub = source.subclip(s0, s_end)
+        if sub.duration <= 0:
+            continue
+        fitted = sub.fx(vfx.speedx, final_duration=final_dur).set_duration(final_dur)
+        sub_clips.append(fitted)
+
+    if not sub_clips:
+        return source.fx(vfx.speedx, final_duration=section_total).set_duration(section_total)
+    if len(sub_clips) == 1:
+        return sub_clips[0]
+    return concatenate_videoclips(sub_clips, method="compose")
 
 
 def _build_overlays(
