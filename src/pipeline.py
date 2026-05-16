@@ -21,7 +21,7 @@ from .cue_finder import (
 from .parser import parse_script_file
 from .renderer import RenderConfig, render, render_sections
 from .sections import DEFAULT_MARKER, reconcile_videos, split_sections
-from .subtitles import burn_into_video, write_srt, write_vtt
+from .subtitles import burn_into_video, burn_pill_subtitles, write_srt, write_vtt
 from .tts import synthesize_beats
 
 
@@ -36,6 +36,7 @@ def run(
     cue_assets: Optional[dict[str, str]] = None,
     subtitles_format: Optional[str] = "vtt",
     burn_subs: bool = True,
+    subtitle_style: str = "pill",
     fps: int = 30,
     auto_cue: bool = True,
     cue_config: Optional[CueFinderConfig] = None,
@@ -99,7 +100,10 @@ def run(
         srt_path = write_srt(beats, out_root / "subs.srt")
         raw_keep = out_root / "final.nosubs.mp4"
         Path(final_path).rename(raw_keep)
-        burned = burn_into_video(raw_keep, srt_path, out_root / "final.mp4")
+        if subtitle_style == "pill":
+            burned = burn_pill_subtitles(raw_keep, srt_path, out_root / "final.mp4")
+        else:
+            burned = burn_into_video(raw_keep, srt_path, out_root / "final.mp4")
         manifest["video"] = burned
         manifest["video_nosubs"] = str(raw_keep)
 

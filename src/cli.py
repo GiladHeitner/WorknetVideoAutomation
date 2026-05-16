@@ -203,6 +203,13 @@ def main() -> None:
         help="ffmpeg scene-detection threshold; lower = more cuts (default: 0.3)",
     )
     p.add_argument(
+        "--subtitle-style",
+        choices=["pill", "classic"],
+        default="pill",
+        dest="subtitle_style",
+        help="Caption look: pill (blue rounded box, default) or classic (ASS outline)",
+    )
+    p.add_argument(
         "--dry-run",
         action="store_true",
         help="Parse + preview only; no API calls, no render",
@@ -235,7 +242,11 @@ def main() -> None:
         beats = synthesize_beats(beats, out_root / "audio", voice=args.voice, model=args.tts_model)
         beats = align_beats(beats)
         srt = write_srt(beats, out_root / "subs.srt")
-        burned = burn_into_video(nosubs, srt, out_root / "final.mp4")
+        if args.subtitle_style == "pill":
+            from .subtitles import burn_pill_subtitles
+            burned = burn_pill_subtitles(nosubs, srt, out_root / "final.mp4")
+        else:
+            burned = burn_into_video(nosubs, srt, out_root / "final.mp4")
         print(f"\nBurned subtitles -> {burned}")
         sys.exit(0)
 
@@ -279,6 +290,7 @@ def main() -> None:
         cue_assets=cue_assets,
         subtitles_format=None if args.subs == "none" else args.subs,
         burn_subs=args.burn_subs,
+        subtitle_style=args.subtitle_style,
         fps=args.fps,
         auto_cue=args.auto_cue,
         cue_config=cue_config,

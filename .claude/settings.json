@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -sL \"https://github.com/google/fonts/raw/main/apache/roboto/static/Roboto-Bold.ttf\" -o /Users/giladheitner/Documents/WorknetAI/WorknetVideoAutomation/assets/fonts/RobotoBold.ttf)"
+    ]
+  }
+}

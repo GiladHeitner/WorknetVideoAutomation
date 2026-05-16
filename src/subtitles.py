@@ -13,9 +13,13 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 from .parser import Beat
+
+# Path to the bundled font used for pill-style subtitles.
+_FONT_PATH = Path(__file__).parent.parent / "assets" / "fonts" / "RobotoBold.ttf"
 
 
 def _format_vtt_time(seconds: float) -> str:
@@ -293,4 +297,218 @@ def burn_into_video(
         str(out_path),
     ]
     subprocess.run(cmd, check=True)
+    return str(out_path)
+
+
+# ---------------------------------------------------------------------------
+# Pill-style subtitle rendering
+# ---------------------------------------------------------------------------
+
+def _srt_seconds(t: str) -> float:
+    """Convert ``HH:MM:SS,mmm`` SRT timestamp to seconds."""
+    h, m, rest = t.split(":")
+    s, ms = rest.split(",")
+    return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000
+
+
+def _parse_srt(srt_path: str | Path) -> list[dict]:
+    """Return ``[{start, end, text}, ...]`` from a plain SRT file."""
+    raw = Path(srt_path).read_text(encoding="utf-8")
+    blocks = re.split(r"\n\s*\n", raw.strip())
+    cues: list[dict] = []
+    for blk in blocks:
+        lines = blk.strip().splitlines()
+        if len(lines) < 2:
+            continue
+        m = re.match(r"\s*(\S+)\s*-->\s*(\S+)", lines[1])
+        if not m:
+            continue
+        cues.append({
+            "start": _srt_seconds(m.group(1)),
+            "end": _srt_seconds(m.group(2)),
+            "text": "\n".join(lines[2:]).strip(),
+        })
+    return cues
+
+
+def _wrap_pill_text(text: str, font, max_inner_px: int) -> str:
+    """Word-wrap ``text`` so no line exceeds ``max_inner_px`` wide."""
+    from PIL import ImageDraw, Image
+
+    def _line_width(line: str) -> int:
+        bb = font.getbbox(line)
+        return bb[2] - bb[0]
+
+    result_lines: list[str] = []
+    for paragraph in text.split("\n"):
+        words = paragraph.split()
+        if not words:
+            result_lines.append("")
+            continue
+        current: list[str] = []
+        for word in words:
+            candidate = " ".join(current + [word])
+            if current and _line_width(candidate) > max_inner_px:
+                result_lines.append(" ".join(current))
+                current = [word]
+            else:
+                current.append(word)
+        if current:
+            result_lines.append(" ".join(current))
+    return "\n".join(result_lines)
+
+
+def _make_pill_image(
+    text: str,
+    video_w: int,
+    video_h: int,
+    font_path: Path,
+    bg_color: tuple,
+    text_color: str,
+    font_size: int,
+    h_pad: int,
+    v_pad: int,
+    radius: int,
+    margin_bottom: int,
+    side_margin: int,
+) -> "PIL.Image.Image":
+    from PIL import Image, ImageDraw, ImageFont
+
+    font = ImageFont.truetype(str(font_path), font_size)
+    max_inner_px = video_w - side_margin * 2 - h_pad * 2
+    wrapped = _wrap_pill_text(text, font, max_inner_px)
+
+    img = Image.new("RGBA", (video_w, video_h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    bb = draw.multiline_textbbox((0, 0), wrapped, font=font, spacing=4)
+    text_w = bb[2] - bb[0]
+    text_h = bb[3] - bb[1]
+
+    pill_w = text_w + h_pad * 2
+    pill_h = text_h + v_pad * 2
+    pill_x0 = (video_w - pill_w) // 2
+    pill_y0 = video_h - margin_bottom - pill_h
+    pill_x1 = pill_x0 + pill_w
+    pill_y1 = pill_y0 + pill_h
+
+    draw.rounded_rectangle(
+        [pill_x0, pill_y0, pill_x1, pill_y1],
+        radius=radius,
+        fill=(*bg_color, 255),
+    )
+
+    text_x = pill_x0 + h_pad - bb[0]
+    text_y = pill_y0 + v_pad - bb[1]
+    draw.multiline_text(
+        (text_x, text_y),
+        wrapped,
+        font=font,
+        fill=text_color,
+        spacing=4,
+        align="center",
+    )
+    return img
+
+
+def _ffprobe_video_size(video_path: str | Path) -> tuple[int, int]:
+    """Return (width, height) via ffprobe."""
+    ffmpeg = _ffmpeg_binary()
+    ffprobe = shutil.which("ffprobe") or ffmpeg.replace("ffmpeg", "ffprobe")
+    result = subprocess.run(
+        [
+            ffprobe, "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height",
+            "-of", "csv=p=0",
+            str(video_path),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    w, h = result.stdout.strip().split(",")
+    return int(w), int(h)
+
+
+def burn_pill_subtitles(
+    video_path: str | Path,
+    srt_path: str | Path,
+    out_path: str | Path,
+    font_path: str | Path | None = None,
+    bg_color: tuple = (26, 86, 219),
+    text_color: str = "white",
+    font_size: int = 36,
+    h_pad: int = 24,
+    v_pad: int = 12,
+    radius: int = 24,
+    margin_bottom: int = 40,
+    side_margin: int = 40,
+) -> str:
+    """Burn blue pill-shaped subtitles onto ``video_path`` and write to ``out_path``.
+
+    Generates a transparent PNG overlay for each SRT cue using Pillow, assembles
+    them into a concat-demuxer sequence, then composites with FFmpeg's overlay
+    filter — a single two-input command regardless of cue count.
+    """
+    resolved_font = Path(font_path) if font_path else _FONT_PATH
+    if not resolved_font.exists():
+        raise FileNotFoundError(f"Pill subtitle font not found: {resolved_font}")
+
+    cues = _parse_srt(srt_path)
+    if not cues:
+        shutil.copy2(str(video_path), str(out_path))
+        return str(out_path)
+
+    video_w, video_h = _ffprobe_video_size(video_path)
+    ffmpeg = _ffmpeg_binary()
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+
+        # Transparent full-frame placeholder used between cues.
+        from PIL import Image
+        blank = Image.new("RGBA", (video_w, video_h), (0, 0, 0, 0))
+        blank_path = tmp / "transparent.png"
+        blank.save(blank_path)
+
+        # Render one PNG per cue.
+        pill_paths: list[Path] = []
+        for i, cue in enumerate(cues):
+            img = _make_pill_image(
+                cue["text"], video_w, video_h,
+                resolved_font, bg_color, text_color,
+                font_size, h_pad, v_pad, radius, margin_bottom, side_margin,
+            )
+            p = tmp / f"pill_{i:04d}.png"
+            img.save(p)
+            pill_paths.append(p)
+
+        # Build concat manifest. Gaps between cues are filled with the blank.
+        concat_lines: list[str] = []
+        cursor = 0.0
+        for i, cue in enumerate(cues):
+            gap = cue["start"] - cursor
+            if gap > 0.001:
+                concat_lines += [f"file '{blank_path}'", f"duration {gap:.3f}"]
+            concat_lines += [f"file '{pill_paths[i]}'", f"duration {cue['end'] - cue['start']:.3f}"]
+            cursor = cue["end"]
+        # No trailing entry needed — FFmpeg trims to the video length.
+        concat_path = tmp / "subs_concat.txt"
+        concat_path.write_text("\n".join(concat_lines) + "\n", encoding="utf-8")
+
+        cmd = [
+            ffmpeg, "-y", "-hide_banner", "-loglevel", "info",
+            "-i", str(video_path),
+            "-f", "concat", "-safe", "0", "-i", str(concat_path),
+            "-filter_complex", "[0:v][1:v]overlay=0:0",
+            "-map", "0:a?",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+            "-c:a", "copy", "-movflags", "+faststart", "-stats",
+            str(out_path),
+        ]
+        subprocess.run(cmd, check=True)
+
     return str(out_path)
