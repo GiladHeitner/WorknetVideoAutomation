@@ -375,13 +375,12 @@ def _make_pill_image(
     from PIL import Image, ImageDraw, ImageFont
 
     font = ImageFont.truetype(str(font_path), font_size)
-    max_inner_px = video_w - side_margin * 2 - h_pad * 2
-    wrapped = _wrap_pill_text(text, font, max_inner_px)
+    text = " ".join(text.splitlines())  # collapse any two-line SRT wrapping
 
     img = Image.new("RGBA", (video_w, video_h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
-    bb = draw.multiline_textbbox((0, 0), wrapped, font=font, spacing=4)
+    bb = draw.multiline_textbbox((0, 0), text, font=font, spacing=4)
     text_w = bb[2] - bb[0]
     text_h = bb[3] - bb[1]
 
@@ -402,7 +401,7 @@ def _make_pill_image(
     text_y = pill_y0 + v_pad - bb[1]
     draw.multiline_text(
         (text_x, text_y),
-        wrapped,
+        text,
         font=font,
         fill=text_color,
         spacing=4,
@@ -438,11 +437,11 @@ def burn_pill_subtitles(
     font_path: str | Path | None = None,
     bg_color: tuple = (26, 86, 219),
     text_color: str = "white",
-    font_size: int = 36,
+    font_size: int = 24,
     h_pad: int = 24,
-    v_pad: int = 12,
-    radius: int = 24,
-    margin_bottom: int = 40,
+    v_pad: int = 10,
+    radius: int = 20,
+    margin_bottom: int = 15,
     side_margin: int = 40,
 ) -> str:
     """Burn blue pill-shaped subtitles onto ``video_path`` and write to ``out_path``.
